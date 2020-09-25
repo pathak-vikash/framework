@@ -59,7 +59,7 @@ class DatabaseEloquentRelationTest extends TestCase
 
     public function testCanDisableParentTouchingForAllModels()
     {
-        /** @var EloquentNoTouchingModelStub $related */
+        /** @var \Illuminate\Tests\Database\EloquentNoTouchingModelStub $related */
         $related = m::mock(EloquentNoTouchingModelStub::class)->makePartial();
         $related->shouldReceive('getUpdatedAtColumn')->never();
         $related->shouldReceive('freshTimestampString')->never();
@@ -234,6 +234,27 @@ class DatabaseEloquentRelationTest extends TestCase
         Relation::morphMap([], false);
     }
 
+    public function testWithoutRelations()
+    {
+        $original = new EloquentNoTouchingModelStub;
+
+        $original->setRelation('foo', 'baz');
+
+        $this->assertSame('baz', $original->getRelation('foo'));
+
+        $model = $original->withoutRelations();
+
+        $this->assertInstanceOf(EloquentNoTouchingModelStub::class, $model);
+        $this->assertTrue($original->relationLoaded('foo'));
+        $this->assertFalse($model->relationLoaded('foo'));
+
+        $model = $original->unsetRelations();
+
+        $this->assertInstanceOf(EloquentNoTouchingModelStub::class, $model);
+        $this->assertFalse($original->relationLoaded('foo'));
+        $this->assertFalse($model->relationLoaded('foo'));
+    }
+
     public function testMacroable()
     {
         Relation::macro('foo', function () {
@@ -245,6 +266,20 @@ class DatabaseEloquentRelationTest extends TestCase
 
         $result = $relation->foo();
         $this->assertSame('foo', $result);
+    }
+
+    public function testRelationResolvers()
+    {
+        $model = new EloquentRelationResetModelStub;
+        $builder = m::mock(Builder::class);
+        $builder->shouldReceive('getModel')->andReturn($model);
+
+        EloquentRelationResetModelStub::resolveRelationUsing('customer', function ($model) use ($builder) {
+            return new EloquentResolverRelationStub($builder, $model);
+        });
+
+        $this->assertInstanceOf(EloquentResolverRelationStub::class, $model->customer());
+        $this->assertSame(['key' => 'value'], $model->customer);
     }
 }
 
@@ -307,4 +342,12 @@ class EloquentNoTouchingAnotherModelStub extends Model
     protected $attributes = [
         'id' => 2,
     ];
+}
+
+class EloquentResolverRelationStub extends EloquentRelationStub
+{
+    public function getResults()
+    {
+        return ['key' => 'value'];
+    }
 }

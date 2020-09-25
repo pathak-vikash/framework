@@ -17,7 +17,10 @@ class FoundationInteractsWithDatabaseTest extends TestCase
 
     protected $table = 'products';
 
-    protected $data = ['title' => 'Spark'];
+    protected $data = [
+        'title' => 'Spark',
+        'name' => 'Laravel',
+    ];
 
     protected $connection;
 
@@ -54,7 +57,7 @@ class FoundationInteractsWithDatabaseTest extends TestCase
     {
         $this->expectException(ExpectationFailedException::class);
 
-        $this->expectExceptionMessage('Found: '.json_encode([['title' => 'Forge']], JSON_PRETTY_PRINT));
+        $this->expectExceptionMessage('Found similar results: '.json_encode([['title' => 'Forge']], JSON_PRETTY_PRINT));
 
         $builder = $this->mockCountBuilder(0);
 
@@ -68,7 +71,7 @@ class FoundationInteractsWithDatabaseTest extends TestCase
     {
         $this->expectException(ExpectationFailedException::class);
 
-        $this->expectExceptionMessage('Found: '.json_encode(['data', 'data', 'data'], JSON_PRETTY_PRINT).' and 2 others.');
+        $this->expectExceptionMessage('Found similar results: '.json_encode(['data', 'data', 'data'], JSON_PRETTY_PRINT).' and 2 others.');
 
         $builder = $this->mockCountBuilder(0);
         $builder->shouldReceive('count')->andReturn(0, 5);
@@ -98,6 +101,64 @@ class FoundationInteractsWithDatabaseTest extends TestCase
         $builder->shouldReceive('get')->andReturn(collect([$this->data]));
 
         $this->assertDatabaseMissing($this->table, $this->data);
+    }
+
+    public function testAssertTableEntriesCount()
+    {
+        $this->mockCountBuilder(1);
+
+        $this->assertDatabaseCount($this->table, 1);
+    }
+
+    public function testAssertTableEntriesCountWrong()
+    {
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessage('Failed asserting that table [products] matches expected entries count of 3. Entries found: 1.');
+        $this->mockCountBuilder(1);
+
+        $this->assertDatabaseCount($this->table, 3);
+    }
+
+    public function testAssertDeletedPassesWhenDoesNotFindResults()
+    {
+        $this->mockCountBuilder(0);
+
+        $this->assertDatabaseMissing($this->table, $this->data);
+    }
+
+    public function testAssertDeletedFailsWhenFindsResults()
+    {
+        $this->expectException(ExpectationFailedException::class);
+
+        $builder = $this->mockCountBuilder(1);
+
+        $builder->shouldReceive('get')->andReturn(collect([$this->data]));
+
+        $this->assertDatabaseMissing($this->table, $this->data);
+    }
+
+    public function testAssertDeletedPassesWhenDoesNotFindModelResults()
+    {
+        $this->data = ['id' => 1];
+
+        $builder = $this->mockCountBuilder(0);
+
+        $builder->shouldReceive('get')->andReturn(collect());
+
+        $this->assertDeleted(new ProductStub($this->data));
+    }
+
+    public function testAssertDeletedFailsWhenFindsModelResults()
+    {
+        $this->expectException(ExpectationFailedException::class);
+
+        $this->data = ['id' => 1];
+
+        $builder = $this->mockCountBuilder(1);
+
+        $builder->shouldReceive('get')->andReturn(collect([$this->data]));
+
+        $this->assertDeleted(new ProductStub($this->data));
     }
 
     public function testAssertSoftDeletedInDatabaseFindsResults()
@@ -150,6 +211,11 @@ class FoundationInteractsWithDatabaseTest extends TestCase
     protected function mockCountBuilder($countResult, $deletedAtColumn = 'deleted_at')
     {
         $builder = m::mock(Builder::class);
+
+        $key = array_key_first($this->data);
+        $value = $this->data[$key];
+
+        $builder->shouldReceive('where')->with($key, $value)->andReturnSelf();
 
         $builder->shouldReceive('limit')->andReturnSelf();
 

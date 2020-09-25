@@ -4,6 +4,7 @@ namespace Illuminate\Tests\Database;
 
 use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\ForeignIdColumnDefinition;
 use Illuminate\Database\Schema\Grammars\PostgresGrammar;
 use Mockery as m;
 use PHPUnit\Framework\TestCase;
@@ -34,6 +35,20 @@ class DatabasePostgresSchemaGrammarTest extends TestCase
 
         $this->assertCount(1, $statements);
         $this->assertSame('alter table "users" add column "id" serial primary key not null, add column "email" varchar(255) not null', $statements[0]);
+    }
+
+    public function testCreateTableWithAutoIncrementStartingValue()
+    {
+        $blueprint = new Blueprint('users');
+        $blueprint->create();
+        $blueprint->increments('id')->startingValue(1000);
+        $blueprint->string('email');
+        $blueprint->string('name')->collation('nb_NO.utf8');
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+
+        $this->assertCount(2, $statements);
+        $this->assertSame('create table "users" ("id" serial primary key not null, "email" varchar(255) not null, "name" varchar(255) collate "nb_NO.utf8" not null)', $statements[0]);
+        $this->assertSame('alter sequence users_id_seq restart with 1000', $statements[1]);
     }
 
     public function testCreateTableAndCommentColumn()
@@ -267,6 +282,16 @@ class DatabasePostgresSchemaGrammarTest extends TestCase
         $this->assertSame('create index "geo_coordinates_spatialindex" on "geo" using gist ("coordinates")', $statements[1]);
     }
 
+    public function testAddingRawIndex()
+    {
+        $blueprint = new Blueprint('users');
+        $blueprint->rawIndex('(function(column))', 'raw_index');
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+
+        $this->assertCount(1, $statements);
+        $this->assertSame('create index "raw_index" on "users" ((function(column)))', $statements[0]);
+    }
+
     public function testAddingIncrementingID()
     {
         $blueprint = new Blueprint('users');
@@ -295,6 +320,44 @@ class DatabasePostgresSchemaGrammarTest extends TestCase
 
         $this->assertCount(1, $statements);
         $this->assertSame('alter table "users" add column "id" serial primary key not null', $statements[0]);
+    }
+
+    public function testAddingID()
+    {
+        $blueprint = new Blueprint('users');
+        $blueprint->id();
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+
+        $this->assertCount(1, $statements);
+        $this->assertSame('alter table "users" add column "id" bigserial primary key not null', $statements[0]);
+
+        $blueprint = new Blueprint('users');
+        $blueprint->id('foo');
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+
+        $this->assertCount(1, $statements);
+        $this->assertSame('alter table "users" add column "foo" bigserial primary key not null', $statements[0]);
+    }
+
+    public function testAddingForeignID()
+    {
+        $blueprint = new Blueprint('users');
+        $foreignId = $blueprint->foreignId('foo');
+        $blueprint->foreignId('company_id')->constrained();
+        $blueprint->foreignId('laravel_idea_id')->constrained();
+        $blueprint->foreignId('team_id')->references('id')->on('teams');
+        $blueprint->foreignId('team_column_id')->constrained('teams');
+
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+
+        $this->assertInstanceOf(ForeignIdColumnDefinition::class, $foreignId);
+        $this->assertSame([
+            'alter table "users" add column "foo" bigint not null, add column "company_id" bigint not null, add column "laravel_idea_id" bigint not null, add column "team_id" bigint not null, add column "team_column_id" bigint not null',
+            'alter table "users" add constraint "users_company_id_foreign" foreign key ("company_id") references "companies" ("id")',
+            'alter table "users" add constraint "users_laravel_idea_id_foreign" foreign key ("laravel_idea_id") references "laravel_ideas" ("id")',
+            'alter table "users" add constraint "users_team_id_foreign" foreign key ("team_id") references "teams" ("id")',
+            'alter table "users" add constraint "users_team_column_id_foreign" foreign key ("team_column_id") references "teams" ("id")',
+        ], $statements);
     }
 
     public function testAddingBigIncrementingID()
@@ -715,6 +778,27 @@ class DatabasePostgresSchemaGrammarTest extends TestCase
         $this->assertSame('alter table "users" add column "foo" uuid not null', $statements[0]);
     }
 
+    public function testAddingForeignUuid()
+    {
+        $blueprint = new Blueprint('users');
+        $foreignUuid = $blueprint->foreignUuid('foo');
+        $blueprint->foreignUuid('company_id')->constrained();
+        $blueprint->foreignUuid('laravel_idea_id')->constrained();
+        $blueprint->foreignUuid('team_id')->references('id')->on('teams');
+        $blueprint->foreignUuid('team_column_id')->constrained('teams');
+
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+
+        $this->assertInstanceOf(ForeignIdColumnDefinition::class, $foreignUuid);
+        $this->assertSame([
+            'alter table "users" add column "foo" uuid not null, add column "company_id" uuid not null, add column "laravel_idea_id" uuid not null, add column "team_id" uuid not null, add column "team_column_id" uuid not null',
+            'alter table "users" add constraint "users_company_id_foreign" foreign key ("company_id") references "companies" ("id")',
+            'alter table "users" add constraint "users_laravel_idea_id_foreign" foreign key ("laravel_idea_id") references "laravel_ideas" ("id")',
+            'alter table "users" add constraint "users_team_id_foreign" foreign key ("team_id") references "teams" ("id")',
+            'alter table "users" add constraint "users_team_column_id_foreign" foreign key ("team_column_id") references "teams" ("id")',
+        ], $statements);
+    }
+
     public function testAddingGeneratedAs()
     {
         $blueprint = new Blueprint('users');
@@ -740,6 +824,26 @@ class DatabasePostgresSchemaGrammarTest extends TestCase
         $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
         $this->assertCount(1, $statements);
         $this->assertSame('alter table "users" add column "foo" integer generated by default as identity not null', $statements[0]);
+    }
+
+    public function testAddingVirtualAs()
+    {
+        $blueprint = new Blueprint('users');
+        $blueprint->integer('foo')->nullable();
+        $blueprint->boolean('bar')->virtualAs('foo is not null');
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+        $this->assertCount(1, $statements);
+        $this->assertSame('alter table "users" add column "foo" integer null, add column "bar" boolean not null generated always as (foo is not null)', $statements[0]);
+    }
+
+    public function testAddingStoredAs()
+    {
+        $blueprint = new Blueprint('users');
+        $blueprint->integer('foo')->nullable();
+        $blueprint->boolean('bar')->storedAs('foo is not null');
+        $statements = $blueprint->toSql($this->getConnection(), $this->getGrammar());
+        $this->assertCount(1, $statements);
+        $this->assertSame('alter table "users" add column "foo" integer null, add column "bar" boolean not null generated always as (foo is not null) stored', $statements[0]);
     }
 
     public function testAddingIpAddress()

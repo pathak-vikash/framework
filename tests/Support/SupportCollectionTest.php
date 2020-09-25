@@ -12,12 +12,14 @@ use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\LazyCollection;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use JsonSerializable;
 use Mockery as m;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use stdClass;
+use Symfony\Component\VarDumper\VarDumper;
 
 class SupportCollectionTest extends TestCase
 {
@@ -207,9 +209,87 @@ class SupportCollectionTest extends TestCase
     {
         $data = new $collection([1, 2, 3, 4, 5, 6]);
 
-        $data = $data->skip(4)->values();
+        // Total items to skip is smaller than collection length
+        $this->assertSame([5, 6], $data->skip(4)->values()->all());
 
-        $this->assertSame([5, 6], $data->all());
+        // Total items to skip is more than collection length
+        $this->assertSame([], $data->skip(10)->values()->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testSkipUntil($collection)
+    {
+        $data = new $collection([1, 1, 2, 2, 3, 3, 4, 4]);
+
+        // Item at the beginning of the collection
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], $data->skipUntil(1)->values()->all());
+
+        // Item at the middle of the collection
+        $this->assertSame([3, 3, 4, 4], $data->skipUntil(3)->values()->all());
+
+        // Item not in the collection
+        $this->assertSame([], $data->skipUntil(5)->values()->all());
+
+        // Item at the beginning of the collection
+        $data = $data->skipUntil(function ($value, $key) {
+            return $value <= 1;
+        })->values();
+
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], $data->all());
+
+        // Item at the middle of the collection
+        $data = $data->skipUntil(function ($value, $key) {
+            return $value >= 3;
+        })->values();
+
+        $this->assertSame([3, 3, 4, 4], $data->all());
+
+        // Item not in the collection
+        $data = $data->skipUntil(function ($value, $key) {
+            return $value >= 5;
+        })->values();
+
+        $this->assertSame([], $data->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testSkipWhile($collection)
+    {
+        $data = new $collection([1, 1, 2, 2, 3, 3, 4, 4]);
+
+        // Item at the beginning of the collection
+        $this->assertSame([2, 2, 3, 3, 4, 4], $data->skipWhile(1)->values()->all());
+
+        // Item not in the collection
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], $data->skipWhile(5)->values()->all());
+
+        // Item in the collection but not at the beginning
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], $data->skipWhile(2)->values()->all());
+
+        // Item not in the collection
+        $data = $data->skipWhile(function ($value, $key) {
+            return $value >= 5;
+        })->values();
+
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], $data->all());
+
+        // Item in the collection but not at the beginning
+        $data = $data->skipWhile(function ($value, $key) {
+            return $value >= 2;
+        })->values();
+
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], $data->all());
+
+        // Item at the beginning of the collection
+        $data = $data->skipWhile(function ($value, $key) {
+            return $value < 3;
+        })->values();
+
+        $this->assertSame([3, 3, 4, 4], $data->all());
     }
 
     /**
@@ -327,10 +407,31 @@ class SupportCollectionTest extends TestCase
 
     public function testArrayAccessOffsetExists()
     {
-        $c = new Collection(['foo', 'bar']);
+        $c = new Collection(['foo', 'bar', null]);
         $this->assertTrue($c->offsetExists(0));
         $this->assertTrue($c->offsetExists(1));
-        $this->assertFalse($c->offsetExists(1000));
+        $this->assertFalse($c->offsetExists(2));
+    }
+
+    public function testBehavesLikeAnArrayWithArrayAccess()
+    {
+        // indexed array
+        $input = ['foo', null];
+        $c = new Collection($input);
+        $this->assertEquals(isset($input[0]), isset($c[0])); // existing value
+        $this->assertEquals(isset($input[1]), isset($c[1])); // existing but null value
+        $this->assertEquals(isset($input[1000]), isset($c[1000])); // non-existing value
+        $this->assertEquals($input[0], $c[0]);
+        $this->assertEquals($input[1], $c[1]);
+
+        // associative array
+        $input = ['k1' => 'foo', 'k2' => null];
+        $c = new Collection($input);
+        $this->assertEquals(isset($input['k1']), isset($c['k1'])); // existing value
+        $this->assertEquals(isset($input['k2']), isset($c['k2'])); // existing but null value
+        $this->assertEquals(isset($input['k3']), isset($c['k3'])); // non-existing value
+        $this->assertEquals($input['k1'], $c['k1']);
+        $this->assertEquals($input['k2'], $c['k2']);
     }
 
     public function testArrayAccessOffsetGet()
@@ -364,10 +465,13 @@ class SupportCollectionTest extends TestCase
         $c = new Collection(['foo', 'bar']);
         $c = $c->forget(0)->all();
         $this->assertFalse(isset($c['foo']));
+        $this->assertFalse(isset($c[0]));
+        $this->assertTrue(isset($c[1]));
 
         $c = new Collection(['foo' => 'bar', 'baz' => 'qux']);
         $c = $c->forget('foo')->all();
         $this->assertFalse(isset($c['foo']));
+        $this->assertTrue(isset($c['baz']));
     }
 
     public function testForgetArrayOfKeys()
@@ -397,7 +501,7 @@ class SupportCollectionTest extends TestCase
     /**
      * @dataProvider collectionClassProvider
      */
-    public function testCountableByWithoutPredicate($collection)
+    public function testCountByStandalone($collection)
     {
         $c = new $collection(['foo', 'foo', 'foo', 'bar', 'bar', 'foobar']);
         $this->assertEquals(['foo' => 3, 'bar' => 2, 'foobar' => 1], $c->countBy()->all());
@@ -412,7 +516,19 @@ class SupportCollectionTest extends TestCase
     /**
      * @dataProvider collectionClassProvider
      */
-    public function testCountableByWithPredicate($collection)
+    public function testCountByWithKey($collection)
+    {
+        $c = new $collection([
+            ['key' => 'a'], ['key' => 'a'], ['key' => 'a'], ['key' => 'a'],
+            ['key' => 'b'], ['key' => 'b'], ['key' => 'b'],
+        ]);
+        $this->assertEquals(['a' => 4, 'b' => 3], $c->countBy('key')->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testCountableByWithCallback($collection)
     {
         $c = new $collection(['alice', 'aaron', 'bob', 'carla']);
         $this->assertEquals(['a' => 2, 'b' => 1, 'c' => 1], $c->countBy(function ($name) {
@@ -1342,6 +1458,33 @@ class SupportCollectionTest extends TestCase
 
         $data = (new $collection(['foo', 'bar-10', 'bar-1']))->sort();
         $this->assertEquals(['bar-1', 'bar-10', 'foo'], $data->values()->all());
+
+        $data = (new $collection(['T2', 'T1', 'T10']))->sort();
+        $this->assertEquals(['T1', 'T10', 'T2'], $data->values()->all());
+
+        $data = (new $collection(['T2', 'T1', 'T10']))->sort(SORT_NATURAL);
+        $this->assertEquals(['T1', 'T2', 'T10'], $data->values()->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testSortDesc($collection)
+    {
+        $data = (new $collection([5, 3, 1, 2, 4]))->sortDesc();
+        $this->assertEquals([5, 4, 3, 2, 1], $data->values()->all());
+
+        $data = (new $collection([-1, -3, -2, -4, -5, 0, 5, 3, 1, 2, 4]))->sortDesc();
+        $this->assertEquals([5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5], $data->values()->all());
+
+        $data = (new $collection(['bar-1', 'foo', 'bar-10']))->sortDesc();
+        $this->assertEquals(['foo', 'bar-10', 'bar-1'], $data->values()->all());
+
+        $data = (new $collection(['T2', 'T1', 'T10']))->sortDesc();
+        $this->assertEquals(['T2', 'T10', 'T1'], $data->values()->all());
+
+        $data = (new $collection(['T2', 'T1', 'T10']))->sortDesc(SORT_NATURAL);
+        $this->assertEquals(['T10', 'T2', 'T1'], $data->values()->all());
     }
 
     /**
@@ -1505,6 +1648,42 @@ class SupportCollectionTest extends TestCase
     /**
      * @dataProvider collectionClassProvider
      */
+    public function testChunkWhileOnEqualElements($collection)
+    {
+        $data = (new $collection(['A', 'A', 'B', 'B', 'C', 'C', 'C']))
+            ->chunkWhile(function ($current, $key, $chunk) {
+                return $chunk->last() === $current;
+            });
+
+        $this->assertInstanceOf($collection, $data);
+        $this->assertInstanceOf($collection, $data->first());
+        $this->assertEquals([0 => 'A', 1 => 'A'], $data->first()->toArray());
+        $this->assertEquals([2 => 'B', 3 => 'B'], $data->get(1)->toArray());
+        $this->assertEquals([4 => 'C', 5 => 'C', 6 => 'C'], $data->last()->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testChunkWhileOnContiguouslyIncreasingIntegers($collection)
+    {
+        $data = (new $collection([1, 4, 9, 10, 11, 12, 15, 16, 19, 20, 21]))
+            ->chunkWhile(function ($current, $key, $chunk) {
+                return $chunk->last() + 1 == $current;
+            });
+
+        $this->assertInstanceOf($collection, $data);
+        $this->assertInstanceOf($collection, $data->first());
+        $this->assertEquals([0 => 1], $data->first()->toArray());
+        $this->assertEquals([1 => 4], $data->get(1)->toArray());
+        $this->assertEquals([2 => 9, 3 => 10, 4 => 11, 5 => 12], $data->get(2)->toArray());
+        $this->assertEquals([6 => 15, 7 => 16], $data->get(3)->toArray());
+        $this->assertEquals([8 => 19, 9 => 20, 10 => 21], $data->last()->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
     public function testEvery($collection)
     {
         $c = new $collection([]);
@@ -1606,6 +1785,17 @@ class SupportCollectionTest extends TestCase
         $data = new $collection(['taylor', 'dayle']);
         $this->assertSame('taylordayle', $data->implode(''));
         $this->assertSame('taylor,dayle', $data->implode(','));
+
+        $data = new $collection([
+            ['name' => Str::of('taylor'), 'email' => Str::of('foo')],
+            ['name' => Str::of('dayle'), 'email' => Str::of('bar')],
+        ]);
+        $this->assertSame('foobar', $data->implode('email'));
+        $this->assertSame('foo,bar', $data->implode('email', ','));
+
+        $data = new $collection([Str::of('taylor'), Str::of('dayle')]);
+        $this->assertSame('taylordayle', $data->implode(''));
+        $this->assertSame('taylor,dayle', $data->implode(','));
     }
 
     /**
@@ -1692,6 +1882,131 @@ class SupportCollectionTest extends TestCase
         $data = new $collection(['taylor', 'dayle', 'shawn']);
         $data = $data->take(-2);
         $this->assertEquals([1 => 'dayle', 2 => 'shawn'], $data->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeUntilUsingValue($collection)
+    {
+        $data = new $collection([1, 2, 3, 4]);
+
+        $data = $data->takeUntil(3);
+
+        $this->assertSame([1, 2], $data->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeUntilUsingCallback($collection)
+    {
+        $data = new $collection([1, 2, 3, 4]);
+
+        $data = $data->takeUntil(function ($item) {
+            return $item >= 3;
+        });
+
+        $this->assertSame([1, 2], $data->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeUntilReturnsAllItemsForUnmetValue($collection)
+    {
+        $data = new $collection([1, 2, 3, 4]);
+
+        $actual = $data->takeUntil(99);
+
+        $this->assertSame($data->toArray(), $actual->toArray());
+
+        $actual = $data->takeUntil(function ($item) {
+            return $item >= 99;
+        });
+
+        $this->assertSame($data->toArray(), $actual->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeUntilCanBeProxied($collection)
+    {
+        $data = new $collection([
+            new TestSupportCollectionHigherOrderItem('Adam'),
+            new TestSupportCollectionHigherOrderItem('Taylor'),
+            new TestSupportCollectionHigherOrderItem('Jason'),
+        ]);
+
+        $actual = $data->takeUntil->is('Jason');
+
+        $this->assertCount(2, $actual);
+        $this->assertSame('Adam', $actual->get(0)->name);
+        $this->assertSame('Taylor', $actual->get(1)->name);
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeWhileUsingValue($collection)
+    {
+        $data = new $collection([1, 1, 2, 2, 3, 3]);
+
+        $data = $data->takeWhile(1);
+
+        $this->assertSame([1, 1], $data->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeWhileUsingCallback($collection)
+    {
+        $data = new $collection([1, 2, 3, 4]);
+
+        $data = $data->takeWhile(function ($item) {
+            return $item < 3;
+        });
+
+        $this->assertSame([1, 2], $data->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeWhileReturnsNoItemsForUnmetValue($collection)
+    {
+        $data = new $collection([1, 2, 3, 4]);
+
+        $actual = $data->takeWhile(2);
+
+        $this->assertSame([], $actual->toArray());
+
+        $actual = $data->takeWhile(function ($item) {
+            return $item == 99;
+        });
+
+        $this->assertSame([], $actual->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testTakeWhileCanBeProxied($collection)
+    {
+        $data = new $collection([
+            new TestSupportCollectionHigherOrderItem('Adam'),
+            new TestSupportCollectionHigherOrderItem('Adam'),
+            new TestSupportCollectionHigherOrderItem('Taylor'),
+            new TestSupportCollectionHigherOrderItem('Taylor'),
+        ]);
+
+        $actual = $data->takeWhile->is('Adam');
+
+        $this->assertCount(2, $actual);
+        $this->assertSame('Adam', $actual->get(0)->name);
+        $this->assertSame('Adam', $actual->get(1)->name);
     }
 
     /**
@@ -1863,6 +2178,16 @@ class SupportCollectionTest extends TestCase
     /**
      * @dataProvider collectionClassProvider
      */
+    public function testEmptyMethod($collection)
+    {
+        $collection = $collection::empty();
+
+        $this->assertCount(0, $collection->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
     public function testTimesMethod($collection)
     {
         $two = $collection::times(2, function ($number) {
@@ -1883,6 +2208,42 @@ class SupportCollectionTest extends TestCase
         $this->assertTrue($zero->isEmpty());
         $this->assertTrue($negative->isEmpty());
         $this->assertEquals(range(1, 5), $range->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testRangeMethod($collection)
+    {
+        $this->assertSame(
+            [1, 2, 3, 4, 5],
+            $collection::range(1, 5)->all()
+        );
+
+        $this->assertSame(
+            [-2, -1, 0, 1, 2],
+            $collection::range(-2, 2)->all()
+        );
+
+        $this->assertSame(
+            [-4, -3, -2],
+            $collection::range(-4, -2)->all()
+        );
+
+        $this->assertSame(
+            [5, 4, 3, 2, 1],
+            $collection::range(5, 1)->all()
+        );
+
+        $this->assertSame(
+            [2, 1, 0, -1, -2],
+            $collection::range(2, -2)->all()
+        );
+
+        $this->assertSame(
+            [-2, -3, -4],
+            $collection::range(-2, -4)->all()
+        );
     }
 
     /**
@@ -2261,6 +2622,30 @@ class SupportCollectionTest extends TestCase
 
         $result = $data->groupBy('url');
         $this->assertEquals([1 => [['rating' => 1, 'url' => '1'], ['rating' => 1, 'url' => '1']], 2 => [['rating' => 2, 'url' => '2']]], $result->toArray());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testGroupByCallable($collection)
+    {
+        $data = new $collection([['rating' => 1, 'url' => '1'], ['rating' => 1, 'url' => '1'], ['rating' => 2, 'url' => '2']]);
+
+        $result = $data->groupBy([$this, 'sortByRating']);
+        $this->assertEquals([1 => [['rating' => 1, 'url' => '1'], ['rating' => 1, 'url' => '1']], 2 => [['rating' => 2, 'url' => '2']]], $result->toArray());
+
+        $result = $data->groupBy([$this, 'sortByUrl']);
+        $this->assertEquals([1 => [['rating' => 1, 'url' => '1'], ['rating' => 1, 'url' => '1']], 2 => [['rating' => 2, 'url' => '2']]], $result->toArray());
+    }
+
+    public function sortByRating(array $value)
+    {
+        return $value['rating'];
+    }
+
+    public function sortByUrl(array $value)
+    {
+        return $value['url'];
     }
 
     /**
@@ -2830,10 +3215,67 @@ class SupportCollectionTest extends TestCase
     public function testPrepend()
     {
         $c = new Collection(['one', 'two', 'three', 'four']);
-        $this->assertEquals(['zero', 'one', 'two', 'three', 'four'], $c->prepend('zero')->all());
+        $this->assertEquals(
+            ['zero', 'one', 'two', 'three', 'four'],
+            $c->prepend('zero')->all()
+        );
 
         $c = new Collection(['one' => 1, 'two' => 2]);
-        $this->assertEquals(['zero' => 0, 'one' => 1, 'two' => 2], $c->prepend(0, 'zero')->all());
+        $this->assertEquals(
+            ['zero' => 0, 'one' => 1, 'two' => 2],
+            $c->prepend(0, 'zero')->all()
+        );
+
+        $c = new Collection(['one' => 1, 'two' => 2]);
+        $this->assertEquals(
+            [null => 0, 'one' => 1, 'two' => 2],
+            $c->prepend(0, null)->all()
+        );
+    }
+
+    public function testPushWithOneItem()
+    {
+        $expected = [
+            0 => 4,
+            1 => 5,
+            2 => 6,
+            3 => ['a', 'b', 'c'],
+            4 => ['who' => 'Jonny', 'preposition' => 'from', 'where' => 'Laroe'],
+            5 => 'Jonny from Laroe',
+        ];
+
+        $data = new Collection([4, 5, 6]);
+        $data->push(['a', 'b', 'c']);
+        $data->push(['who' => 'Jonny', 'preposition' => 'from', 'where' => 'Laroe']);
+        $actual = $data->push('Jonny from Laroe')->toArray();
+
+        $this->assertSame($expected, $actual);
+    }
+
+    public function testPushWithMultipleItems()
+    {
+        $expected = [
+            0 => 4,
+            1 => 5,
+            2 => 6,
+            3 => 'Jonny',
+            4 => 'from',
+            5 => 'Laroe',
+            6 => 'Jonny',
+            7 => 'from',
+            8 => 'Laroe',
+            9 => 'a',
+            10 => 'b',
+            11 => 'c',
+        ];
+
+        $data = new Collection([4, 5, 6]);
+        $data->push('Jonny', 'from', 'Laroe');
+        $data->push(...[11 => 'Jonny', 12 => 'from', 13 => 'Laroe']);
+        $data->push(...collect(['a', 'b', 'c']));
+        $actual = $data->push(...[])->toArray();
+
+        $this->assertSame($expected, $actual);
     }
 
     /**
@@ -3103,6 +3545,24 @@ class SupportCollectionTest extends TestCase
         $actual = $firstCollection->concat($thirdCollection)->toArray();
 
         $this->assertSame($expected, $actual);
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testDump($collection)
+    {
+        $log = new Collection();
+
+        VarDumper::setHandler(function ($value) use ($log) {
+            $log->add($value);
+        });
+
+        (new $collection([1, 2, 3]))->dump('one', 'two');
+
+        $this->assertSame(['one', 'two', [1, 2, 3]], $log->all());
+
+        VarDumper::setHandler(null);
     }
 
     /**
@@ -3911,6 +4371,76 @@ class SupportCollectionTest extends TestCase
     /**
      * @dataProvider collectionClassProvider
      */
+    public function testWhereNull($collection)
+    {
+        $data = new $collection([
+            ['name' => 'Taylor'],
+            ['name' => null],
+            ['name' => 'Bert'],
+            ['name' => false],
+            ['name' => ''],
+        ]);
+
+        $this->assertSame([
+            1 => ['name' => null],
+        ], $data->whereNull('name')->all());
+
+        $this->assertSame([], $data->whereNull()->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testWhereNullWithoutKey($collection)
+    {
+        $collection = new $collection([1, null, 3, 'null', false, true]);
+        $this->assertSame([
+            1 => null,
+        ], $collection->whereNull()->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testWhereNotNull($collection)
+    {
+        $data = new $collection($originalData = [
+            ['name' => 'Taylor'],
+            ['name' => null],
+            ['name' => 'Bert'],
+            ['name' => false],
+            ['name' => ''],
+        ]);
+
+        $this->assertSame([
+            0 => ['name' => 'Taylor'],
+            2 => ['name' => 'Bert'],
+            3 => ['name' => false],
+            4 => ['name' => ''],
+        ], $data->whereNotNull('name')->all());
+
+        $this->assertSame($originalData, $data->whereNotNull()->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
+    public function testWhereNotNullWithoutKey($collection)
+    {
+        $data = new $collection([1, null, 3, 'null', false, true]);
+
+        $this->assertSame([
+            0 => 1,
+            2 => 3,
+            3 => 'null',
+            4 => false,
+            5 => true,
+        ], $data->whereNotNull()->all());
+    }
+
+    /**
+     * @dataProvider collectionClassProvider
+     */
     public function testCollect($collection)
     {
         $data = $collection::make([
@@ -3954,6 +4484,11 @@ class TestSupportCollectionHigherOrderItem
     public function uppercase()
     {
         return $this->name = strtoupper($this->name);
+    }
+
+    public function is($name)
+    {
+        return $this->name === $name;
     }
 }
 

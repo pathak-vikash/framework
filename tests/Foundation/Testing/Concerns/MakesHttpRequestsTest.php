@@ -14,6 +14,15 @@ class MakesHttpRequestsTest extends TestCase
         $this->assertSame('previous/url', $this->app['session']->previousUrl());
     }
 
+    public function testWithTokenSetsAuthorizationHeader()
+    {
+        $this->withToken('foobar');
+        $this->assertSame('Bearer foobar', $this->defaultHeaders['Authorization']);
+
+        $this->withToken('foobar', 'Basic');
+        $this->assertSame('Basic foobar', $this->defaultHeaders['Authorization']);
+    }
+
     public function testWithoutAndWithMiddleware()
     {
         $this->assertFalse($this->app->has('middleware.disable'));
@@ -72,6 +81,38 @@ class MakesHttpRequestsTest extends TestCase
         $this->assertCount(2, $this->defaultCookies);
         $this->assertSame('baz', $this->defaultCookies['foo']);
         $this->assertSame('new-value', $this->defaultCookies['new-cookie']);
+    }
+
+    public function testWithUnencryptedCookieSetCookie()
+    {
+        $this->withUnencryptedCookie('foo', 'bar');
+
+        $this->assertCount(1, $this->unencryptedCookies);
+        $this->assertSame('bar', $this->unencryptedCookies['foo']);
+    }
+
+    public function testWithUnencryptedCookiesSetsCookiesAndOverwritesPreviousValues()
+    {
+        $this->withUnencryptedCookie('foo', 'bar');
+        $this->withUnencryptedCookies([
+            'foo' => 'baz',
+            'new-cookie' => 'new-value',
+        ]);
+
+        $this->assertCount(2, $this->unencryptedCookies);
+        $this->assertSame('baz', $this->unencryptedCookies['foo']);
+        $this->assertSame('new-value', $this->unencryptedCookies['new-cookie']);
+    }
+
+    public function testWithoutAndWithCredentials()
+    {
+        $this->encryptCookies = false;
+
+        $this->assertSame([], $this->prepareCookiesForJsonRequest());
+
+        $this->withCredentials();
+        $this->defaultCookies = ['foo' => 'bar'];
+        $this->assertSame(['foo' => 'bar'], $this->prepareCookiesForJsonRequest());
     }
 }
 

@@ -171,9 +171,9 @@ class Logger implements LoggerInterface
      */
     protected function writeLog($level, $message, $context)
     {
-        $this->fireLogEvent($level, $message = $this->formatMessage($message), $context);
+        $this->logger->{$level}($message = $this->formatMessage($message), $context);
 
-        $this->logger->{$level}($message, $context);
+        $this->fireLogEvent($level, $message, $context);
     }
 
     /**
@@ -198,7 +198,7 @@ class Logger implements LoggerInterface
      *
      * @param  string  $level
      * @param  string  $message
-     * @param  array   $context
+     * @param  array  $context
      * @return void
      */
     protected function fireLogEvent($level, $message, array $context = [])

@@ -32,14 +32,14 @@ class EloquentBelongsToTest extends DatabaseTestCase
     {
         $users = User::has('parent')->get();
 
-        $this->assertEquals(1, $users->count());
+        $this->assertCount(1, $users);
     }
 
     public function testHasSelfCustomOwnerKey()
     {
         $users = User::has('parentBySlug')->get();
 
-        $this->assertEquals(1, $users->count());
+        $this->assertCount(1, $users);
     }
 
     public function testAssociateWithModel()
@@ -79,7 +79,7 @@ class EloquentBelongsToTest extends DatabaseTestCase
 class User extends Model
 {
     public $timestamps = false;
-    protected $guarded = ['id'];
+    protected $guarded = [];
 
     public function parent()
     {

@@ -2,11 +2,14 @@
 
 namespace Illuminate\Foundation\Testing\Concerns;
 
+use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Foundation\Testing\Constraints\HasInDatabase;
-use Illuminate\Foundation\Testing\Constraints\SoftDeletedInDatabase;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\Constraints\CountInDatabase;
+use Illuminate\Testing\Constraints\HasInDatabase;
+use Illuminate\Testing\Constraints\SoftDeletedInDatabase;
 use PHPUnit\Framework\Constraint\LogicalNot as ReverseConstraint;
 
 trait InteractsWithDatabase
@@ -48,7 +51,43 @@ trait InteractsWithDatabase
     }
 
     /**
+     * Assert the count of table entries.
+     *
+     * @param  string  $table
+     * @param  int  $count
+     * @param  string|null  $connection
+     * @return $this
+     */
+    protected function assertDatabaseCount($table, int $count, $connection = null)
+    {
+        $this->assertThat(
+            $table, new CountInDatabase($this->getConnection($connection), $count)
+        );
+
+        return $this;
+    }
+
+    /**
      * Assert the given record has been deleted.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|string  $table
+     * @param  array  $data
+     * @param  string|null  $connection
+     * @return $this
+     */
+    protected function assertDeleted($table, array $data = [], $connection = null)
+    {
+        if ($table instanceof Model) {
+            return $this->assertDatabaseMissing($table->getTable(), [$table->getKeyName() => $table->getKey()], $table->getConnectionName());
+        }
+
+        $this->assertDatabaseMissing($table, $data, $connection);
+
+        return $this;
+    }
+
+    /**
+     * Assert the given record has been "soft deleted".
      *
      * @param  \Illuminate\Database\Eloquent\Model|string  $table
      * @param  array  $data
@@ -82,6 +121,23 @@ trait InteractsWithDatabase
     }
 
     /**
+     * Cast a JSON string to a database compatible type.
+     *
+     * @param  array|string  $value
+     * @return \Illuminate\Database\Query\Expression
+     */
+    public function castAsJson($value)
+    {
+        if ($value instanceof Jsonable) {
+            $value = $value->toJson();
+        } elseif (is_array($value)) {
+            $value = json_encode($value);
+        }
+
+        return DB::raw("CAST('$value' AS JSON)");
+    }
+
+    /**
      * Get the database connection.
      *
      * @param  string|null  $connection
@@ -102,7 +158,7 @@ trait InteractsWithDatabase
      * @param  array|string  $class
      * @return $this
      */
-    public function seed($class = 'DatabaseSeeder')
+    public function seed($class = 'Database\\Seeders\\DatabaseSeeder')
     {
         foreach (Arr::wrap($class) as $class) {
             $this->artisan('db:seed', ['--class' => $class, '--no-interaction' => true]);

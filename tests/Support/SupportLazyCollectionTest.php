@@ -2,8 +2,10 @@
 
 namespace Illuminate\Tests\Support;
 
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
+use Mockery as m;
 use PHPUnit\Framework\TestCase;
 
 class SupportLazyCollectionTest extends TestCase
@@ -78,6 +80,110 @@ class SupportLazyCollectionTest extends TestCase
         $source[] = 6;
 
         $this->assertSame([1, 2, 3, 4, 5], $data->all());
+    }
+
+    public function testRemember()
+    {
+        $source = [1, 2, 3, 4];
+
+        $collection = LazyCollection::make(function () use (&$source) {
+            yield from $source;
+        })->remember();
+
+        $this->assertSame([1, 2, 3, 4], $collection->all());
+
+        $source = [];
+
+        $this->assertSame([1, 2, 3, 4], $collection->all());
+    }
+
+    public function testRememberWithTwoRunners()
+    {
+        $source = [1, 2, 3, 4];
+
+        $collection = LazyCollection::make(function () use (&$source) {
+            yield from $source;
+        })->remember();
+
+        $a = $collection->getIterator();
+        $b = $collection->getIterator();
+
+        $this->assertEquals(1, $a->current());
+        $this->assertEquals(1, $b->current());
+
+        $b->next();
+
+        $this->assertEquals(1, $a->current());
+        $this->assertEquals(2, $b->current());
+
+        $b->next();
+
+        $this->assertEquals(1, $a->current());
+        $this->assertEquals(3, $b->current());
+
+        $a->next();
+
+        $this->assertEquals(2, $a->current());
+        $this->assertEquals(3, $b->current());
+
+        $a->next();
+
+        $this->assertEquals(3, $a->current());
+        $this->assertEquals(3, $b->current());
+
+        $a->next();
+
+        $this->assertEquals(4, $a->current());
+        $this->assertEquals(3, $b->current());
+
+        $b->next();
+
+        $this->assertEquals(4, $a->current());
+        $this->assertEquals(4, $b->current());
+    }
+
+    public function testRememberWithDuplicateKeys()
+    {
+        $collection = LazyCollection::make(function () {
+            yield 'key' => 1;
+            yield 'key' => 2;
+        })->remember();
+
+        $results = $collection->map(function ($value, $key) {
+            return [$key, $value];
+        })->values()->all();
+
+        $this->assertSame([['key', 1], ['key', 2]], $results);
+    }
+
+    public function testTakeUntilTimeout()
+    {
+        $timeout = Carbon::now();
+
+        $mock = m::mock(LazyCollection::class.'[now]');
+
+        $results = $mock
+            ->times(10)
+            ->pipe(function ($collection) use ($mock, $timeout) {
+                tap($collection)
+                    ->mockery_init($mock->mockery_getContainer())
+                    ->shouldAllowMockingProtectedMethods()
+                    ->shouldReceive('now')
+                    ->times(3)
+                    ->andReturn(
+                        (clone $timeout)->sub(2, 'minute')->getTimestamp(),
+                        (clone $timeout)->sub(1, 'minute')->getTimestamp(),
+                        $timeout->getTimestamp()
+                    );
+
+                return $collection;
+            })
+            ->takeUntilTimeout($timeout)
+            ->all();
+
+        $this->assertSame([1, 2], $results);
+
+        m::close();
     }
 
     public function testTapEach()

@@ -6,6 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\TestCase;
 
@@ -14,6 +15,8 @@ use Orchestra\Testbench\TestCase;
  */
 class JobChainingTest extends TestCase
 {
+    public static $catchCallbackRan = false;
+
     protected function getEnvironmentSetUp($app)
     {
         $app['config']->set('app.debug', 'true');
@@ -34,6 +37,7 @@ class JobChainingTest extends TestCase
         JobChainingTestFirstJob::$ran = false;
         JobChainingTestSecondJob::$ran = false;
         JobChainingTestThirdJob::$ran = false;
+        static::$catchCallbackRan = false;
     }
 
     public function testJobsCanBeChainedOnSuccess()
@@ -51,6 +55,28 @@ class JobChainingTest extends TestCase
         JobChainingTestFirstJob::withChain([
             new JobChainingTestSecondJob,
         ])->dispatch();
+
+        $this->assertTrue(JobChainingTestFirstJob::$ran);
+        $this->assertTrue(JobChainingTestSecondJob::$ran);
+    }
+
+    public function testJobsCanBeChainedOnSuccessUsingBusFacade()
+    {
+        Bus::dispatchChain([
+            new JobChainingTestFirstJob(),
+            new JobChainingTestSecondJob(),
+        ]);
+
+        $this->assertTrue(JobChainingTestFirstJob::$ran);
+        $this->assertTrue(JobChainingTestSecondJob::$ran);
+    }
+
+    public function testJobsCanBeChainedOnSuccessUsingBusFacadeAsArguments()
+    {
+        Bus::dispatchChain(
+            new JobChainingTestFirstJob(),
+            new JobChainingTestSecondJob()
+        );
 
         $this->assertTrue(JobChainingTestFirstJob::$ran);
         $this->assertTrue(JobChainingTestSecondJob::$ran);
@@ -125,6 +151,21 @@ class JobChainingTest extends TestCase
 
         $this->assertTrue(JobChainingTestFirstJob::$ran);
         $this->assertFalse(JobChainingTestThirdJob::$ran);
+    }
+
+    public function testCatchCallbackIsCalledOnFailure()
+    {
+        Bus::chain([
+            new JobChainingTestFirstJob(),
+            new JobChainingTestFailingJob(),
+            new JobChainingTestSecondJob(),
+        ])->catch(static function () {
+            self::$catchCallbackRan = true;
+        })->dispatch();
+
+        $this->assertTrue(JobChainingTestFirstJob::$ran);
+        $this->assertTrue(static::$catchCallbackRan);
+        $this->assertFalse(JobChainingTestSecondJob::$ran);
     }
 
     public function testChainJobsUseSameConfig()

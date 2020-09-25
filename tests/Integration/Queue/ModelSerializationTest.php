@@ -90,14 +90,14 @@ class ModelSerializationTest extends TestCase
         $this->assertSame('testbench', $unSerialized->user->getConnectionName());
         $this->assertSame('mohamed@laravel.com', $unSerialized->user->email);
 
-        $serialized = serialize(new ModelSerializationTestClass(ModelSerializationTestUser::on('testbench')->get()));
+        $serialized = serialize(new CollectionSerializationTestClass(ModelSerializationTestUser::on('testbench')->get()));
 
         $unSerialized = unserialize($serialized);
 
-        $this->assertSame('testbench', $unSerialized->user[0]->getConnectionName());
-        $this->assertSame('mohamed@laravel.com', $unSerialized->user[0]->email);
-        $this->assertSame('testbench', $unSerialized->user[1]->getConnectionName());
-        $this->assertSame('taylor@laravel.com', $unSerialized->user[1]->email);
+        $this->assertSame('testbench', $unSerialized->users[0]->getConnectionName());
+        $this->assertSame('mohamed@laravel.com', $unSerialized->users[0]->email);
+        $this->assertSame('testbench', $unSerialized->users[1]->getConnectionName());
+        $this->assertSame('taylor@laravel.com', $unSerialized->users[1]->email);
     }
 
     public function testItSerializeUserOnDifferentConnection()
@@ -117,14 +117,14 @@ class ModelSerializationTest extends TestCase
         $this->assertSame('custom', $unSerialized->user->getConnectionName());
         $this->assertSame('mohamed@laravel.com', $unSerialized->user->email);
 
-        $serialized = serialize(new ModelSerializationTestClass(ModelSerializationTestUser::on('custom')->get()));
+        $serialized = serialize(new CollectionSerializationTestClass(ModelSerializationTestUser::on('custom')->get()));
 
         $unSerialized = unserialize($serialized);
 
-        $this->assertSame('custom', $unSerialized->user[0]->getConnectionName());
-        $this->assertSame('mohamed@laravel.com', $unSerialized->user[0]->email);
-        $this->assertSame('custom', $unSerialized->user[1]->getConnectionName());
-        $this->assertSame('taylor@laravel.com', $unSerialized->user[1]->email);
+        $this->assertSame('custom', $unSerialized->users[0]->getConnectionName());
+        $this->assertSame('mohamed@laravel.com', $unSerialized->users[0]->email);
+        $this->assertSame('custom', $unSerialized->users[1]->getConnectionName());
+        $this->assertSame('taylor@laravel.com', $unSerialized->users[1]->email);
     }
 
     public function testItFailsIfModelsOnMultiConnections()
@@ -140,7 +140,7 @@ class ModelSerializationTest extends TestCase
             'email' => 'taylor@laravel.com',
         ]);
 
-        $serialized = serialize(new ModelSerializationTestClass(
+        $serialized = serialize(new CollectionSerializationTestClass(
             new Collection([$user, $user2])
         ));
 
@@ -214,7 +214,7 @@ class ModelSerializationTest extends TestCase
 
     public function testItSerializesAnEmptyCollection()
     {
-        $serialized = serialize(new ModelSerializationTestClass(
+        $serialized = serialize(new CollectionSerializationTestClass(
             new Collection([])
         ));
 
@@ -269,12 +269,60 @@ class ModelSerializationTest extends TestCase
 
         $this->assertInstanceOf(ModelSerializationTestCustomUserCollection::class, $unserialized->users);
     }
+
+    public function testItSerializesTypedProperties()
+    {
+        if (version_compare(phpversion(), '7.4.0-dev', '<')) {
+            $this->markTestSkipped('Typed properties are only available from PHP 7.4 and up.');
+        }
+
+        require_once __DIR__.'/typed-properties.php';
+
+        $user = ModelSerializationTestUser::create([
+            'email' => 'mohamed@laravel.com',
+        ]);
+
+        ModelSerializationTestUser::create([
+            'email' => 'taylor@laravel.com',
+        ]);
+
+        $serialized = serialize(new TypedPropertyTestClass($user, 5, ['James', 'Taylor', 'Mohamed']));
+
+        $unSerialized = unserialize($serialized);
+
+        $this->assertSame('testbench', $unSerialized->user->getConnectionName());
+        $this->assertSame('mohamed@laravel.com', $unSerialized->user->email);
+        $this->assertSame(5, $unSerialized->getId());
+        $this->assertSame(['James', 'Taylor', 'Mohamed'], $unSerialized->getNames());
+
+        $serialized = serialize(new TypedPropertyCollectionTestClass(ModelSerializationTestUser::on('testbench')->get()));
+
+        $unSerialized = unserialize($serialized);
+
+        $this->assertSame('testbench', $unSerialized->users[0]->getConnectionName());
+        $this->assertSame('mohamed@laravel.com', $unSerialized->users[0]->email);
+        $this->assertSame('testbench', $unSerialized->users[1]->getConnectionName());
+        $this->assertSame('taylor@laravel.com', $unSerialized->users[1]->email);
+    }
+
+    public function test_model_serialization_structure()
+    {
+        $user = ModelSerializationTestUser::create([
+            'email' => 'taylor@laravel.com',
+        ]);
+
+        $serialized = serialize(new ModelSerializationParentAccessibleTestClass($user, $user, $user));
+
+        $this->assertSame(
+            'O:78:"Illuminate\\Tests\\Integration\\Queue\\ModelSerializationParentAccessibleTestClass":2:{s:4:"user";O:45:"Illuminate\\Contracts\\Database\\ModelIdentifier":4:{s:5:"class";s:61:"Illuminate\\Tests\\Integration\\Queue\\ModelSerializationTestUser";s:2:"id";i:1;s:9:"relations";a:0:{}s:10:"connection";s:9:"testbench";}s:8:"'."\0".'*'."\0".'user2";O:45:"Illuminate\\Contracts\\Database\\ModelIdentifier":4:{s:5:"class";s:61:"Illuminate\\Tests\\Integration\\Queue\\ModelSerializationTestUser";s:2:"id";i:1;s:9:"relations";a:0:{}s:10:"connection";s:9:"testbench";}}', $serialized
+        );
+    }
 }
 
 class ModelSerializationTestUser extends Model
 {
     public $table = 'users';
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 }
 
@@ -286,7 +334,7 @@ class ModelSerializationTestCustomUserCollection extends Collection
 class ModelSerializationTestCustomUser extends Model
 {
     public $table = 'users';
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 
     public function newCollection(array $models = [])
@@ -297,7 +345,7 @@ class ModelSerializationTestCustomUser extends Model
 
 class Order extends Model
 {
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 
     public function line()
@@ -318,7 +366,7 @@ class Order extends Model
 
 class Line extends Model
 {
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 
     public function product()
@@ -329,13 +377,13 @@ class Line extends Model
 
 class Product extends Model
 {
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 }
 
 class User extends Model
 {
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 
     public function roles()
@@ -347,7 +395,7 @@ class User extends Model
 
 class Role extends Model
 {
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 
     public function users()
@@ -359,7 +407,7 @@ class Role extends Model
 
 class RoleUser extends Pivot
 {
-    public $guarded = ['id'];
+    public $guarded = [];
     public $timestamps = false;
 
     public function user()
@@ -383,6 +431,27 @@ class ModelSerializationTestClass
     {
         $this->user = $user;
     }
+}
+
+class ModelSerializationAccessibleTestClass
+{
+    use SerializesModels;
+
+    public $user;
+    protected $user2;
+    private $user3;
+
+    public function __construct($user, $user2, $user3)
+    {
+        $this->user = $user;
+        $this->user2 = $user2;
+        $this->user3 = $user3;
+    }
+}
+
+class ModelSerializationParentAccessibleTestClass extends ModelSerializationAccessibleTestClass
+{
+    //
 }
 
 class ModelRelationSerializationTestClass

@@ -13,6 +13,8 @@ class BelongsTo extends Relation
 
     /**
      * The child model instance of the relation.
+     *
+     * @var \Illuminate\Database\Eloquent\Model
      */
     protected $child;
 
@@ -145,7 +147,7 @@ class BelongsTo extends Relation
     /**
      * Initialize the relation on a set of models.
      *
-     * @param  array   $models
+     * @param  array  $models
      * @param  string  $relation
      * @return array
      */
@@ -161,7 +163,7 @@ class BelongsTo extends Relation
     /**
      * Match the eagerly loaded results to their parents.
      *
-     * @param  array   $models
+     * @param  array  $models
      * @param  \Illuminate\Database\Eloquent\Collection  $results
      * @param  string  $relation
      * @return array
@@ -207,7 +209,7 @@ class BelongsTo extends Relation
 
         if ($model instanceof Model) {
             $this->child->setRelation($this->relationName, $model);
-        } elseif ($this->child->isDirty($this->foreignKey)) {
+        } else {
             $this->child->unsetRelation($this->relationName);
         }
 
@@ -284,7 +286,7 @@ class BelongsTo extends Relation
     protected function relationHasIncrementingId()
     {
         return $this->related->getIncrementing() &&
-                                $this->related->getKeyType() === 'int';
+            in_array($this->related->getKeyType(), ['int', 'integer']);
     }
 
     /**

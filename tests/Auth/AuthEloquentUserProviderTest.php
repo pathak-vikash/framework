@@ -61,6 +61,14 @@ class AuthEloquentUserProviderTest extends TestCase
         $this->assertNull($user);
     }
 
+    public function testRetrievingWithOnlyPasswordCredentialReturnsNull()
+    {
+        $provider = $this->getProviderMock();
+        $user = $provider->retrieveByCredentials(['api_password' => 'foo']);
+
+        $this->assertNull($user);
+    }
+
     public function testRetrieveByBadTokenReturnsNull()
     {
         $mockUser = m::mock(stdClass::class);

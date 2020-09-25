@@ -25,6 +25,17 @@ class UrlSigningTest extends TestCase
         $this->assertSame('valid', $this->get($url)->original);
     }
 
+    public function testSigningUrlWithCustomRouteSlug()
+    {
+        Route::get('/foo/{post:slug}', function (Request $request, $slug) {
+            return ['slug' => $slug, 'valid' => $request->hasValidSignature() ? 'valid' : 'invalid'];
+        })->name('foo');
+
+        $this->assertIsString($url = URL::signedRoute('foo', ['post' => new RoutableInterfaceStub]));
+        $this->assertSame('valid', $this->get($url)->original['valid']);
+        $this->assertSame('routable-slug', $this->get($url)->original['slug']);
+    }
+
     public function testTemporarySignedUrls()
     {
         Route::get('/foo/{id}', function (Request $request, $id) {
@@ -85,11 +96,25 @@ class UrlSigningTest extends TestCase
         $this->assertIsString($url = URL::signedRoute('foo', $model));
         $this->assertSame('routable', $this->get($url)->original);
     }
+
+    public function testSignedMiddlewareWithRelativePath()
+    {
+        Route::get('/foo/relative', function (Request $request) {
+            return $request->hasValidSignature($absolute = false) ? 'valid' : 'invalid';
+        })->name('foo')->middleware('signed:relative');
+
+        $this->assertIsString($url = 'https://fake.test'.URL::signedRoute('foo', [], null, $absolute = false));
+        $this->assertSame('valid', $this->get($url)->original);
+
+        $response = $this->get('/foo/relative');
+        $response->assertStatus(403);
+    }
 }
 
 class RoutableInterfaceStub implements UrlRoutable
 {
     public $key;
+    public $slug = 'routable-slug';
 
     public function getRouteKey()
     {
@@ -101,7 +126,12 @@ class RoutableInterfaceStub implements UrlRoutable
         return 'routable';
     }
 
-    public function resolveRouteBinding($routeKey)
+    public function resolveRouteBinding($routeKey, $field = null)
+    {
+        //
+    }
+
+    public function resolveChildRouteBinding($childType, $routeKey, $field = null)
     {
         //
     }

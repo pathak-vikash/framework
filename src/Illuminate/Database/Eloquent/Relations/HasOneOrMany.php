@@ -60,6 +60,23 @@ abstract class HasOneOrMany extends Relation
     }
 
     /**
+     * Create and return an un-saved instances of the related models.
+     *
+     * @param  iterable  $records
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function makeMany($records)
+    {
+        $instances = $this->related->newCollection();
+
+        foreach ($records as $record) {
+            $instances->push($this->make($record));
+        }
+
+        return $instances;
+    }
+
+    /**
      * Set the base constraints on the relation query.
      *
      * @return void
@@ -91,7 +108,7 @@ abstract class HasOneOrMany extends Relation
     /**
      * Match the eagerly loaded results to their single parents.
      *
-     * @param  array   $models
+     * @param  array  $models
      * @param  \Illuminate\Database\Eloquent\Collection  $results
      * @param  string  $relation
      * @return array
@@ -104,7 +121,7 @@ abstract class HasOneOrMany extends Relation
     /**
      * Match the eagerly loaded results to their many parents.
      *
-     * @param  array   $models
+     * @param  array  $models
      * @param  \Illuminate\Database\Eloquent\Collection  $results
      * @param  string  $relation
      * @return array
@@ -117,7 +134,7 @@ abstract class HasOneOrMany extends Relation
     /**
      * Match the eagerly loaded results to their many parents.
      *
-     * @param  array   $models
+     * @param  array  $models
      * @param  \Illuminate\Database\Eloquent\Collection  $results
      * @param  string  $relation
      * @param  string  $type
@@ -144,7 +161,7 @@ abstract class HasOneOrMany extends Relation
     /**
      * Get the value of a relationship by one or many type.
      *
-     * @param  array   $dictionary
+     * @param  array  $dictionary
      * @param  string  $key
      * @param  string  $type
      * @return mixed
@@ -196,7 +213,7 @@ abstract class HasOneOrMany extends Relation
      * @param  array  $values
      * @return \Illuminate\Database\Eloquent\Model
      */
-    public function firstOrNew(array $attributes, array $values = [])
+    public function firstOrNew(array $attributes = [], array $values = [])
     {
         if (is_null($instance = $this->where($attributes)->first())) {
             $instance = $this->related->newInstance($attributes + $values);
@@ -214,7 +231,7 @@ abstract class HasOneOrMany extends Relation
      * @param  array  $values
      * @return \Illuminate\Database\Eloquent\Model
      */
-    public function firstOrCreate(array $attributes, array $values = [])
+    public function firstOrCreate(array $attributes = [], array $values = [])
     {
         if (is_null($instance = $this->where($attributes)->first())) {
             $instance = $this->create($attributes + $values);

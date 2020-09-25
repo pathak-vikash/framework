@@ -10,6 +10,8 @@ use Illuminate\Contracts\Queue\Factory as QueueContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Contracts\View\Factory;
+use Illuminate\Mail\Events\MessageSending;
+use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Traits\Macroable;
 use InvalidArgumentException;
@@ -18,6 +20,13 @@ use Swift_Mailer;
 class Mailer implements MailerContract, MailQueueContract
 {
     use Macroable;
+
+    /**
+     * The name that is configured for the mailer.
+     *
+     * @var string
+     */
+    protected $name;
 
     /**
      * The view factory instance.
@@ -55,6 +64,13 @@ class Mailer implements MailerContract, MailQueueContract
     protected $replyTo;
 
     /**
+     * The global return path address.
+     *
+     * @var array
+     */
+    protected $returnPath;
+
+    /**
      * The global to address and name.
      *
      * @var array
@@ -78,13 +94,15 @@ class Mailer implements MailerContract, MailQueueContract
     /**
      * Create a new Mailer instance.
      *
+     * @param  string  $name
      * @param  \Illuminate\Contracts\View\Factory  $views
      * @param  \Swift_Mailer  $swift
      * @param  \Illuminate\Contracts\Events\Dispatcher|null  $events
      * @return void
      */
-    public function __construct(Factory $views, Swift_Mailer $swift, Dispatcher $events = null)
+    public function __construct(string $name, Factory $views, Swift_Mailer $swift, Dispatcher $events = null)
     {
+        $this->name = $name;
         $this->views = $views;
         $this->swift = $swift;
         $this->events = $events;
@@ -112,6 +130,17 @@ class Mailer implements MailerContract, MailQueueContract
     public function alwaysReplyTo($address, $name = null)
     {
         $this->replyTo = compact('address', 'name');
+    }
+
+    /**
+     * Set the global return path address.
+     *
+     * @param  string  $address
+     * @return void
+     */
+    public function alwaysReturnPath($address)
+    {
+        $this->returnPath = compact('address');
     }
 
     /**
@@ -271,8 +300,8 @@ class Mailer implements MailerContract, MailQueueContract
     protected function sendMailable(MailableContract $mailable)
     {
         return $mailable instanceof ShouldQueue
-                        ? $mailable->queue($this->queue)
-                        : $mailable->send($this);
+                        ? $mailable->mailer($this->name)->queue($this->queue)
+                        : $mailable->mailer($this->name)->send($this);
     }
 
     /**
@@ -329,7 +358,7 @@ class Mailer implements MailerContract, MailQueueContract
         if (isset($plain)) {
             $method = isset($view) ? 'addPart' : 'setBody';
 
-            $message->$method($this->renderView($plain, $data), 'text/plain');
+            $message->$method($this->renderView($plain, $data) ?: ' ', 'text/plain');
         }
 
         if (isset($raw)) {
@@ -385,7 +414,7 @@ class Mailer implements MailerContract, MailQueueContract
             $view->onQueue($queue);
         }
 
-        return $view->queue($this->queue);
+        return $view->mailer($this->name)->queue($this->queue);
     }
 
     /**
@@ -430,7 +459,9 @@ class Mailer implements MailerContract, MailQueueContract
             throw new InvalidArgumentException('Only mailables may be queued.');
         }
 
-        return $view->later($delay, is_null($queue) ? $this->queue : $queue);
+        return $view->mailer($this->name)->later(
+            $delay, is_null($queue) ? $this->queue : $queue
+        );
     }
 
     /**
@@ -469,6 +500,10 @@ class Mailer implements MailerContract, MailQueueContract
             $message->replyTo($this->replyTo['address'], $this->replyTo['name']);
         }
 
+        if (! empty($this->returnPath['address'])) {
+            $message->returnPath($this->returnPath['address']);
+        }
+
         return $message;
     }
 
@@ -480,6 +515,8 @@ class Mailer implements MailerContract, MailQueueContract
      */
     protected function sendSwiftMessage($message)
     {
+        $this->failedRecipients = [];
+
         try {
             return $this->swift->send($message, $this->failedRecipients);
         } finally {
@@ -501,7 +538,7 @@ class Mailer implements MailerContract, MailQueueContract
         }
 
         return $this->events->until(
-            new Events\MessageSending($message, $data)
+            new MessageSending($message, $data)
         ) !== false;
     }
 
@@ -516,7 +553,7 @@ class Mailer implements MailerContract, MailQueueContract
     {
         if ($this->events) {
             $this->events->dispatch(
-                new Events\MessageSent($message->getSwiftMessage(), $data)
+                new MessageSent($message->getSwiftMessage(), $data)
             );
         }
     }

@@ -29,6 +29,29 @@ class SupportLazyCollectionIsLazyTest extends TestCase
         });
     }
 
+    public function testChunkWhileIsLazy()
+    {
+        $collection = LazyCollection::make(['A', 'A', 'B', 'B', 'C', 'C', 'C']);
+
+        $this->assertDoesNotEnumerateCollection($collection, function ($collection) {
+            $collection->chunkWhile(function ($current, $key, $chunk) {
+                return $current === $chunk->last();
+            });
+        });
+
+        $this->assertEnumeratesCollection($collection, 3, function ($collection) {
+            $collection->chunkWhile(function ($current, $key, $chunk) {
+                return $current === $chunk->last();
+            })->first();
+        });
+
+        $this->assertEnumeratesCollectionOnce($collection, function ($collection) {
+            $collection->chunkWhile(function ($current, $key, $chunk) {
+                return $current === $chunk->last();
+            })->all();
+        });
+    }
+
     public function testCollapseIsLazy()
     {
         $collection = LazyCollection::make([
@@ -763,6 +786,27 @@ class SupportLazyCollectionIsLazyTest extends TestCase
         });
     }
 
+    public function testRememberIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->remember();
+        });
+
+        $this->assertEnumeratesOnce(function ($collection) {
+            $collection = $collection->remember();
+
+            $collection->all();
+            $collection->all();
+        });
+
+        $this->assertEnumerates(5, function ($collection) {
+            $collection = $collection->remember();
+
+            $collection->take(5)->all();
+            $collection->take(5)->all();
+        });
+    }
+
     public function testReplaceIsLazy()
     {
         $this->assertDoesNotEnumerate(function ($collection) {
@@ -829,6 +873,40 @@ class SupportLazyCollectionIsLazyTest extends TestCase
         });
     }
 
+    public function testSkipUntilIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->skipUntil(INF);
+        });
+
+        $this->assertEnumerates(10, function ($collection) {
+            $collection->skipUntil(10)->first();
+        });
+
+        $this->assertEnumerates(10, function ($collection) {
+            $collection->skipUntil(function ($item) {
+                return $item === 10;
+            })->first();
+        });
+    }
+
+    public function testSkipWhileIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->skipWhile(1);
+        });
+
+        $this->assertEnumerates(2, function ($collection) {
+            $collection->skipWhile(1)->first();
+        });
+
+        $this->assertEnumerates(10, function ($collection) {
+            $collection->skipWhile(function ($item) {
+                return $item < 10;
+            })->first();
+        });
+    }
+
     public function testSliceIsLazy()
     {
         $this->assertDoesNotEnumerate(function ($collection) {
@@ -873,6 +951,17 @@ class SupportLazyCollectionIsLazyTest extends TestCase
 
         $this->assertEnumeratesOnce(function ($collection) {
             $collection->sort()->all();
+        });
+    }
+
+    public function testSortDescIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->sortDesc();
+        });
+
+        $this->assertEnumeratesOnce(function ($collection) {
+            $collection->sortDesc()->all();
         });
     }
 
@@ -954,6 +1043,40 @@ class SupportLazyCollectionIsLazyTest extends TestCase
 
         $this->assertEnumerates(10, function ($collection) {
             $collection->take(10)->all();
+        });
+    }
+
+    public function testTakeUntilIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->takeUntil(INF);
+        });
+
+        $this->assertEnumerates(10, function ($collection) {
+            $collection->takeUntil(10)->all();
+        });
+
+        $this->assertEnumerates(10, function ($collection) {
+            $collection->takeUntil(function ($item) {
+                return $item === 10;
+            })->all();
+        });
+    }
+
+    public function testTakeWhileIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->takeWhile(0);
+        });
+
+        $this->assertEnumerates(1, function ($collection) {
+            $collection->takeWhile(0)->all();
+        });
+
+        $this->assertEnumerates(10, function ($collection) {
+            $collection->takeWhile(function ($item) {
+                return $item < 10;
+            })->all();
         });
     }
 
@@ -1221,6 +1344,52 @@ class SupportLazyCollectionIsLazyTest extends TestCase
 
         $this->assertEnumeratesCollection($data, 2, function ($collection) {
             $collection->whereNotInStrict('a', [1, '2'])->take(1)->all();
+        });
+    }
+
+    public function testWhereNotNullIsLazy()
+    {
+        $data = $this->make([['a' => 1], ['a' => null], ['a' => 2], ['a' => 3]]);
+
+        $this->assertDoesNotEnumerateCollection($data, function ($collection) {
+            $collection->whereNotNull('a');
+        });
+
+        $this->assertEnumeratesCollectionOnce($data, function ($collection) {
+            $collection->whereNotNull('a')->all();
+        });
+
+        $data = $this->make([1, null, 2, null, 3]);
+
+        $this->assertDoesNotEnumerateCollection($data, function ($collection) {
+            $collection->whereNotNull();
+        });
+
+        $this->assertEnumeratesCollectionOnce($data, function ($collection) {
+            $collection->whereNotNull()->all();
+        });
+    }
+
+    public function testWhereNullIsLazy()
+    {
+        $data = $this->make([['a' => 1], ['a' => null], ['a' => 2], ['a' => 3]]);
+
+        $this->assertDoesNotEnumerateCollection($data, function ($collection) {
+            $collection->whereNull('a');
+        });
+
+        $this->assertEnumeratesCollectionOnce($data, function ($collection) {
+            $collection->whereNull('a')->all();
+        });
+
+        $data = $this->make([1, null, 2, null, 3]);
+
+        $this->assertDoesNotEnumerateCollection($data, function ($collection) {
+            $collection->whereNull();
+        });
+
+        $this->assertEnumeratesCollectionOnce($data, function ($collection) {
+            $collection->whereNull()->all();
         });
     }
 

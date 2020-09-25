@@ -68,41 +68,40 @@ class ContainerTest extends TestCase
     public function testSingletonIfDoesntRegisterIfBindingAlreadyRegistered()
     {
         $container = new Container;
-        $class = new stdClass;
-        $container->singleton('class', function () use ($class) {
-            return $class;
+        $container->singleton('class', function () {
+            return new stdClass;
         });
-        $otherClass = new stdClass;
-        $container->singletonIf('class', function () use ($otherClass) {
-            return $otherClass;
+        $firstInstantiation = $container->make('class');
+        $container->singletonIf('class', function () {
+            return new ContainerConcreteStub;
         });
-
-        $this->assertSame($class, $container->make('class'));
+        $secondInstantiation = $container->make('class');
+        $this->assertSame($firstInstantiation, $secondInstantiation);
     }
 
     public function testSingletonIfDoesRegisterIfBindingNotRegisteredYet()
     {
         $container = new Container;
-        $class = new stdClass;
-        $container->singleton('class', function () use ($class) {
-            return $class;
+        $container->singleton('class', function () {
+            return new stdClass;
         });
-        $otherClass = new stdClass;
-        $container->singletonIf('otherClass', function () use ($otherClass) {
-            return $otherClass;
+        $container->singletonIf('otherClass', function () {
+            return new ContainerConcreteStub;
         });
-
-        $this->assertSame($otherClass, $container->make('otherClass'));
+        $firstInstantiation = $container->make('otherClass');
+        $secondInstantiation = $container->make('otherClass');
+        $this->assertSame($firstInstantiation, $secondInstantiation);
     }
 
     public function testSharedClosureResolution()
     {
         $container = new Container;
-        $class = new stdClass;
-        $container->singleton('class', function () use ($class) {
-            return $class;
+        $container->singleton('class', function () {
+            return new stdClass;
         });
-        $this->assertSame($class, $container->make('class'));
+        $firstInstantiation = $container->make('class');
+        $secondInstantiation = $container->make('class');
+        $this->assertSame($firstInstantiation, $secondInstantiation);
     }
 
     public function testAutoConcreteResolution()
@@ -119,6 +118,15 @@ class ContainerTest extends TestCase
         $var1 = $container->make(ContainerConcreteStub::class);
         $var2 = $container->make(ContainerConcreteStub::class);
         $this->assertSame($var1, $var2);
+    }
+
+    public function testBindFailsLoudlyWithInvalidArgument()
+    {
+        $this->expectException(\TypeError::class);
+        $container = new Container;
+
+        $concrete = new ContainerConcreteStub();
+        $container->bind(ContainerConcreteStub::class, $concrete);
     }
 
     public function testAbstractToConcreteResolution()
@@ -197,6 +205,15 @@ class ContainerTest extends TestCase
         $resolved = $container->instance('foo', $bound);
 
         $this->assertSame($bound, $resolved);
+    }
+
+    public function testBindingAnInstanceAsShared()
+    {
+        $container = new Container;
+        $bound = new stdClass;
+        $container->instance('foo', $bound);
+        $object = $container->make('foo');
+        $this->assertSame($bound, $object);
     }
 
     public function testResolutionOfDefaultParameters()
